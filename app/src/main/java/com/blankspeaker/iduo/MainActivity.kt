@@ -109,11 +109,11 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSeverityLabel(p: Int) {
         val word = when {
-            p < 20 -> "hairline"
+            p < 20 -> "a few dead pixels"
             p < 45 -> "\"it's just the crease\""
             p < 70 -> "AppleCare territory"
             p < 90 -> "\$999 inner screen"
-            else -> "shattered"
+            else -> "dead band"
         }
         severityLabel.text = "${getString(R.string.severity)}: $p  ($word)"
     }
@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
         status.text = buildString {
             append("Overlay permission: ").append(if (overlayOk) "granted" else "needed").append('\n')
             append("Hinge: ").append(hingeText).append('\n')
-            append("Crack: ").append(if (running) "ON" else "off")
+            append("Damage: ").append(if (running) "ON" else "off")
             if (running && placement.isNotEmpty()) append(" — ").append(placement)
         }
     }

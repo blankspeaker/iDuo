@@ -1,16 +1,16 @@
 <resources>
     <string name="app_name">iDuo</string>
-    <string name="tagline">Your foldable, now with the authentic 2026 hinge experience.</string>
+    <string name="tagline">Your foldable, now with the authentic 2026 hinge experience. Shows up only when the phone is unfolded.</string>
     <string name="grant_overlay">Grant \"Display over other apps\"</string>
     <string name="grant_notif">Allow notification (for the Stop button)</string>
-    <string name="crack_switch">Crack my screen</string>
+    <string name="crack_switch">Break my inner screen</string>
     <string name="severity">Severity</string>
     <string name="dead_line">Dead-pixel line along the crease</string>
     <string name="flicker">Flicker</string>
-    <string name="regen">Regenerate crack</string>
-    <string name="disclaimer">Parody / prank app. Nothing is actually broken: it only draws a picture on top of the screen, and touches pass straight through. Not affiliated with, endorsed by, or connected to Apple. No ads, no internet, no data collected.</string>
-    <string name="notif_channel">Crack overlay</string>
-    <string name="notif_title">iDuo: your screen is \"cracked\"</string>
+    <string name="regen">Regenerate damage</string>
+    <string name="disclaimer">Parody / prank app. Nothing is actually broken: it only draws fake dead/stuck pixels on top of the inner screen while unfolded, and touches pass straight through. Not affiliated with, endorsed by, or connected to Apple. No ads, no internet, no data collected.</string>
+    <string name="notif_channel">Pixel damage overlay</string>
+    <string name="notif_title">iDuo: your inner screen is \"broken\"</string>
     <string name="notif_text">Tap Stop to magically repair it.</string>
     <string name="stop">Stop</string>
 </resources>

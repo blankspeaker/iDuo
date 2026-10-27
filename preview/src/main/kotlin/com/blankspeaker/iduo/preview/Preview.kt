@@ -64,20 +64,22 @@ fun render(spec: CrackSpec, label: String, file: File): BufferedImage {
     g.drawString(label, fs / 2, spec.height - fs / 2)
     g.dispose()
     ImageIO.write(img, "png", file)
-    println("wrote ${file.path} mode=${scene.mode} strokes=${scene.strokes.size}")
+    println("wrote ${file.path} strokes=${scene.strokes.size}")
     return img
 }
 
 fun main(args: Array<String>) {
     val dir = File(args.firstOrNull() ?: "out").apply { mkdirs() }
-    val tag = "PREVIEW (JVM render of app's crack code on a mock screen)"
-    val a = render(CrackSpec(2208, 1840, CreaseOrientation.VERTICAL, 1104f, 0.15f, true, 7), "Pixel Fold inner, hairline - $tag", File(dir, "preview-fold-hairline.png"))
-    val b = render(CrackSpec(2208, 1840, CreaseOrientation.VERTICAL, 1104f, 0.55f, true, 42), "Pixel Fold inner, medium - $tag", File(dir, "preview-fold-medium.png"))
-    val c = render(CrackSpec(2208, 1840, CreaseOrientation.VERTICAL, 1104f, 0.95f, true, 1337), "Pixel Fold inner, shattered - $tag", File(dir, "preview-fold-shattered.png"))
-    render(CrackSpec(1856, 2160, CreaseOrientation.VERTICAL, 928f, 0.6f, true, 99), "Galaxy Z Fold-style inner - $tag", File(dir, "preview-zfold-medium.png"))
-    render(CrackSpec(1840, 2208, CreaseOrientation.HORIZONTAL, 1104f, 0.6f, true, 5), "Pixel Fold rotated (horizontal hinge) - $tag", File(dir, "preview-fold-rotated.png"))
-    render(CrackSpec(1080, 2092, CreaseOrientation.VERTICAL, null, 0.7f, true, 3), "Outer screen / no hinge: corner mode - $tag", File(dir, "preview-outer-corner.png"))
-    // Side-by-side strip for the README.
+    dir.listFiles()?.filter { it.name.startsWith("preview-") }?.forEach { it.delete() }
+    val tag = "COMPUTER RENDER of the app's drawing code on a mock screen"
+    // Pixel 10 Pro Fold-like inner display, vertical crease at the centre.
+    val a = render(CrackSpec(2076, 2152, CreaseOrientation.VERTICAL, 1038f, 0.05f, true, 7), "Inner screen, low - $tag", File(dir, "preview-inner-low.png"))
+    val b = render(CrackSpec(2076, 2152, CreaseOrientation.VERTICAL, 1038f, 0.5f, true, 42), "Inner screen, medium - $tag", File(dir, "preview-inner-medium.png"))
+    val c = render(CrackSpec(2076, 2152, CreaseOrientation.VERTICAL, 1038f, 1f, true, 1337), "Inner screen, max - $tag", File(dir, "preview-inner-max.png"))
+    render(CrackSpec(2152, 2076, CreaseOrientation.HORIZONTAL, 1038f, 0.6f, true, 5), "Inner screen rotated (horizontal hinge) - $tag", File(dir, "preview-inner-rotated.png"))
+    // Folded: the gate says no, so the generator gets no crease and draws nothing.
+    val show = FoldGate.shouldShow(null, 1080, 2364, 2.625f)
+    render(CrackSpec(1080, 2364, CreaseOrientation.VERTICAL, if (show) 540f else null, 1f, true, 3), "Folded / cover screen: nothing drawn - $tag", File(dir, "preview-cover-folded.png"))
     val sw = a.width / 2; val sh = a.height / 2
     val strip = BufferedImage(sw * 3 + 40, sh + 20, BufferedImage.TYPE_INT_RGB)
     val g = strip.createGraphics()

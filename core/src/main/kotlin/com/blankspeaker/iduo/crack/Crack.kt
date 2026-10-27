@@ -1,21 +1,42 @@
 package com.blankspeaker.iduo.crack
 
 import java.util.Random
-import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /** Direction of the hinge crease on screen. */
 enum class CreaseOrientation { VERTICAL, HORIZONTAL }
 
+/** Hinge posture as reported by Jetpack WindowManager's FoldingFeature. */
+enum class Posture { FLAT, HALF_OPENED }
+
+/** A hinge in the overlay's own coordinates. [pos] is px along the axis perpendicular to the crease. */
+data class Hinge(val orientation: CreaseOrientation, val pos: Float, val posture: Posture)
+
+object FoldGate {
+    /** Smallest side (dp) a screen must have to count as the big inner display. Cover screens are ~400 dp. */
+    const val MIN_INNER_DP = 560f
+
+    /**
+     * Only draw when the phone is open on its inner display: a hinge must be reported, be FLAT or
+     * HALF_OPENED, sit inside the overlay, and the overlay must be tablet-sized. Anything else
+     * (folded / cover screen / no FoldingFeature / regular phone) draws nothing.
+     */
+    fun shouldShow(hinge: Hinge?, widthPx: Int, heightPx: Int, density: Float): Boolean {
+        if (hinge == null || widthPx <= 0 || heightPx <= 0 || density <= 0f) return false
+        val minDp = min(widthPx, heightPx) / density
+        if (minDp < MIN_INNER_DP) return false
+        val span = if (hinge.orientation == CreaseOrientation.VERTICAL) widthPx else heightPx
+        if (hinge.pos <= 0f || hinge.pos >= span) return false
+        return hinge.posture == Posture.FLAT || hinge.posture == Posture.HALF_OPENED
+    }
+}
+
 /**
- * Everything needed to build a crack.
- * [creasePos] is the crease centre in px along the axis perpendicular to the crease
- * (x for a vertical crease, y for a horizontal one). null = no hinge reported.
+ * Everything needed to build the damage. [creasePos] is the crease centre in px along the axis
+ * perpendicular to the crease (x for a vertical crease). null = nothing is drawn.
  */
 data class CrackSpec(
     val width: Int,
@@ -27,7 +48,8 @@ data class CrackSpec(
     val seed: Long = 1L,
 )
 
-enum class StrokeKind { GLASS, BRIGHT, DEAD }
+/** BRIGHT = stuck-on OLED line, DEAD = black pixels, PIXEL = individual stuck sub-pixels. */
+enum class StrokeKind { BRIGHT, DEAD, PIXEL }
 
 class Stroke(
     val xs: FloatArray,
@@ -38,9 +60,9 @@ class Stroke(
     val flicker: Boolean = false,
 )
 
-enum class CrackMode { HINGE, HINGE_GUESS, CORNER }
-
-class CrackScene(val width: Int, val height: Int, val mode: CrackMode, val strokes: List<Stroke>)
+class CrackScene(val width: Int, val height: Int, val strokes: List<Stroke>) {
+    val isEmpty get() = strokes.isEmpty()
+}
 
 /** Minimal drawing backend so Android Canvas and java.awt share one painter. */
 interface LineSurface {
@@ -53,254 +75,128 @@ fun withAlpha(argb: Int, mul: Float): Int {
 }
 
 object CrackPainter {
-    /** Paints [scene]. [filter] picks strokes; [alphaOf] lets callers flicker individual strokes. */
     fun paint(
         scene: CrackScene,
         surface: LineSurface,
         filter: (Stroke) -> Boolean = { true },
         alphaOf: (Stroke) -> Float = { 1f },
     ) {
-        // Draw order: glass shadows, bright OLED lines, dead pixels, glass cracks on top.
-        val order = listOf(StrokeKind.BRIGHT, StrokeKind.DEAD, StrokeKind.GLASS)
-        val unit = min(scene.width, scene.height) / 1000f
+        // Dead pixels first, lit pixels on top (a stuck-on row can cross a dead column).
+        val order = listOf(StrokeKind.DEAD, StrokeKind.BRIGHT, StrokeKind.PIXEL)
         for (k in order) for (s in scene.strokes) {
             if (s.kind != k || !filter(s)) continue
             val a = alphaOf(s)
             if (a <= 0.01f) continue
             when (k) {
+                StrokeKind.DEAD -> surface.polyline(s.xs, s.ys, s.width, withAlpha(s.color, a), false)
                 StrokeKind.BRIGHT -> {
-                    // Soft bloom around a hard pixel row, like a stuck-on OLED line.
-                    surface.polyline(s.xs, s.ys, s.width * 5f, withAlpha(s.color, 0.10f * a), false)
-                    surface.polyline(s.xs, s.ys, s.width * 2.2f, withAlpha(s.color, 0.30f * a), false)
+                    // Very light bleed: OLED lines are crisp, the glass diffuses them a touch.
+                    surface.polyline(s.xs, s.ys, s.width * 3f, withAlpha(s.color, 0.10f * a), false)
                     surface.polyline(s.xs, s.ys, s.width, withAlpha(s.color, a), false)
                 }
-                StrokeKind.DEAD -> surface.polyline(s.xs, s.ys, s.width, withAlpha(s.color, a), false)
-                StrokeKind.GLASS -> {
-                    surface.polyline(s.xs, s.ys, s.width * 3.5f, withAlpha(0xFF000000.toInt(), 0.10f * a), true)
-                    surface.polyline(s.xs, s.ys, s.width, withAlpha(s.color, a), true)
-                    // Refraction highlight just beside the crack.
-                    val off = max(0.8f, unit * 0.9f)
-                    val hx = FloatArray(s.xs.size) { s.xs[it] + off }
-                    val hy = FloatArray(s.ys.size) { s.ys[it] + off }
-                    surface.polyline(hx, hy, max(0.6f, s.width * 0.55f), withAlpha(0xFFFFFFFF.toInt(), 0.38f * a), true)
-                }
+                StrokeKind.PIXEL -> surface.polyline(s.xs, s.ys, s.width, withAlpha(s.color, a), false)
             }
         }
     }
 }
 
 object CrackGenerator {
-    private val BRIGHT_COLORS = intArrayOf(
-        0xFFFFFFFF.toInt(), 0xFFFFFFFF.toInt(), 0xFFF2F8FF.toInt(),
-        0xFFBFF4FF.toInt(), 0xFFFFC6EF.toInt(), 0xFFD6FFD2.toInt(), 0xFFFFF3C4.toInt(),
-    )
-    private const val GLASS_DARK = 0xB0101418.toInt()
-    private const val DEAD_BLACK = 0xFF000000.toInt()
-    private const val DEAD_GREEN = 0xFF39FF6A.toInt()
+    private const val WHITE = 0xFFFFFFFF.toInt()
+    private const val GREEN = 0xFF3DFF5A.toInt()
+    private const val MAGENTA = 0xFFFF3DF2.toInt()
+    private const val CYAN = 0xFF7DF6FF.toInt()
+    private const val BLACK = 0xFF000000.toInt()
+    private val LINE_COLORS = intArrayOf(WHITE, WHITE, WHITE, GREEN, MAGENTA, GREEN, MAGENTA, CYAN)
+    private val SUBPIXELS = intArrayOf(0xFFFF2020.toInt(), 0xFF20FF20.toInt(), 0xFF3050FF.toInt(), WHITE)
 
     fun generate(spec: CrackSpec): CrackScene {
+        val crease = spec.creasePos ?: return CrackScene(spec.width, spec.height, emptyList())
         val w = max(1, spec.width).toFloat()
         val h = max(1, spec.height).toFloat()
         val s = spec.severity.coerceIn(0f, 1f)
         val r = Random(spec.seed)
-        val unit = min(w, h) / 1000f
+        // One "unit" is roughly one physical pixel on a ~2100 px inner display, scaled for others.
+        val unit = max(1f, min(w, h) / 1000f)
         val out = ArrayList<Stroke>()
-
-        val aspect = w / h
-        val (mode, orient, crease) = when {
-            spec.creasePos != null -> Triple(CrackMode.HINGE, spec.orientation, spec.creasePos)
-            aspect in 0.70f..1.45f -> Triple(CrackMode.HINGE_GUESS, CreaseOrientation.VERTICAL, w / 2f)
-            else -> Triple(CrackMode.CORNER, CreaseOrientation.VERTICAL, 0f)
-        }
-        if (mode == CrackMode.CORNER) {
-            corner(out, r, w, h, s, unit, spec.deadLine)
-        } else {
-            hinge(out, r, w, h, s, unit, orient, crease, spec.deadLine)
-        }
-        return CrackScene(spec.width, spec.height, mode, out)
-    }
-
-    /**
-     * iPhone Duo style: dead pixels down the crease to an impact point just below the
-     * middle, then perfectly straight bright pixel rows running from the crease to the edge,
-     * and (at higher severity) a real glass fracture + spiderweb at the impact point.
-     * Built in crease-local coords: u = along crease, v = across.
-     */
-    private fun hinge(
-        out: MutableList<Stroke>, r: Random, w: Float, h: Float, s: Float, unit: Float,
-        orient: CreaseOrientation, crease: Float, deadLine: Boolean,
-    ) {
-        val vertical = orient == CreaseOrientation.VERTICAL
-        val len = if (vertical) h else w          // along crease
+        val vertical = spec.orientation == CreaseOrientation.VERTICAL
+        val len = if (vertical) h else w          // along the crease
         val across = if (vertical) w else h       // perpendicular
         fun add(us: FloatArray, vs: FloatArray, width: Float, color: Int, kind: StrokeKind, flicker: Boolean = false) {
-            if (vertical) out += Stroke(vs, us, width, color, kind, flicker)
-            else out += Stroke(us, vs, width, color, kind, flicker)
+            out += if (vertical) Stroke(vs, us, width, color, kind, flicker) else Stroke(us, vs, width, color, kind, flicker)
         }
+        fun hLine(u: Float, v0: Float, v1: Float, width: Float, color: Int, kind: StrokeKind, flicker: Boolean = false) =
+            add(floatArrayOf(u, u), floatArrayOf(v0, v1), width, color, kind, flicker)
+        fun vLine(v: Float, u0: Float, u1: Float, width: Float, color: Int, kind: StrokeKind, flicker: Boolean = false) =
+            add(floatArrayOf(u0, u1), floatArrayOf(v, v), width, color, kind, flicker)
 
+        // Where the panel "popped": 50-62% down the crease. Lines run toward the larger side (right on a Fold).
         val pu = len * (0.50f + r.nextFloat() * 0.12f)
-        // Lines run toward the larger side (the Duo shows them on the right half).
-        val dir = if (across - crease >= crease || r.nextFloat() < 0.15f) 1f else -1f
+        val dir = if (across - crease >= crease) 1f else -1f
         val edge = if (dir > 0) across else 0f
 
-        // 1) Dead / damaged pixel column following the crease from the top to the impact.
-        if (deadLine) {
-            var u = 0f
-            while (u < pu) {
-                val seg = len * (0.04f + r.nextFloat() * 0.18f)
-                val end = min(pu, u + seg)
-                val v = crease + (r.nextFloat() - 0.5f) * unit * 1.2f
-                add(floatArrayOf(u, end), floatArrayOf(v, v), unit * (1.4f + 1.6f * s), DEAD_BLACK, StrokeKind.DEAD)
-                u = end + len * r.nextFloat() * 0.015f
-            }
-            val gv = crease + dir * unit * (2.6f + r.nextFloat() * 2f)
-            val gStart = pu * r.nextFloat() * 0.4f
-            add(floatArrayOf(gStart, pu), floatArrayOf(gv, gv), max(1f, unit * 0.9f), DEAD_GREEN, StrokeKind.DEAD, flicker = true)
-        }
-
-        // 2) Bright stuck-on pixel rows from the crease to the edge.
-        val n = 1 + (s * 8f + r.nextFloat() * 1.5f).toInt()
-        for (i in 0 until n) {
-            val spread = len * (0.02f + 0.20f * s)
-            val du = if (i == 0) 0f else r.nextFloat().pow(1.4f) * spread * (if (r.nextFloat() < 0.82f) 1f else -0.35f)
-            val u = (pu + du).coerceIn(0f, len)
-            val v0 = crease - dir * unit * r.nextFloat() * 3f
-            val band = r.nextFloat() < 0.12f + 0.25f * s
-            val width = if (band) unit * (4f + r.nextFloat() * 9f * s + 2f) else unit * (0.9f + r.nextFloat() * (1.5f + 3f * s))
-            val color = BRIGHT_COLORS[r.nextInt(BRIGHT_COLORS.size)]
-            add(floatArrayOf(u, u), floatArrayOf(v0, edge), width, color, StrokeKind.BRIGHT, flicker = r.nextFloat() < 0.35f)
-            if (band && r.nextFloat() < 0.7f) {
-                // RGB fringe on the thick bands.
-                val fu = u + (width / 2f + unit * 0.8f) * (if (r.nextBoolean()) 1 else -1)
-                add(floatArrayOf(fu, fu), floatArrayOf(v0, edge), unit * 0.9f, BRIGHT_COLORS[3 + r.nextInt(4)], StrokeKind.BRIGHT)
-            }
-        }
-
-        // 3) Bright column continuing down the crease to the bottom.
-        if (s > 0.25f) {
-            val v = crease + dir * unit * (1f + r.nextFloat() * 2f)
-            add(floatArrayOf(pu, len), floatArrayOf(v, v), unit * (1.2f + 2f * s), 0xFFF6FBFF.toInt(), StrokeKind.BRIGHT, flicker = r.nextFloat() < 0.5f)
-            if (s > 0.55f) {
-                val v2 = v + dir * unit * 3f
-                add(floatArrayOf(pu + len * 0.05f * r.nextFloat(), len), floatArrayOf(v2, v2), unit, BRIGHT_COLORS[3 + r.nextInt(4)], StrokeKind.BRIGHT)
-            }
-        }
-
-        // 4) Physical glass fracture along the crease + branches.
-        if (s > 0.35f) {
-            val top = max(0f, pu - len * (0.04f + 0.30f * s))
-            val bot = min(len, pu + len * (0.04f + 0.34f * s))
-            val step = len / 70f
-            val us = ArrayList<Float>(); val vs = ArrayList<Float>()
-            var u = top; var v = crease
-            val wander = unit * (3f + 10f * s)
-            while (u <= bot) {
-                us += u; vs += v
-                u += step * (0.5f + r.nextFloat())
-                v = (v + (r.nextFloat() - 0.5f) * wander).coerceIn(crease - wander * 1.5f, crease + wander * 1.5f)
-            }
-            add(us.toFloatArray(), vs.toFloatArray(), unit * (1.2f + s), GLASS_DARK, StrokeKind.GLASS)
-            val branches = (s * 12f).toInt()
-            repeat(branches) {
-                val idx = r.nextInt(us.size)
-                val side = if (r.nextBoolean()) 1.0 else -1.0
-                val ang = (if (r.nextBoolean()) 0.0 else PI) + side * (0.35 + r.nextDouble() * 0.9)
-                // angle measured in (u, v) space: 0 = along crease
-                val length = unit * (40f + r.nextFloat() * (120f + 260f * s))
-                branch(r, us[idx], vs[idx], ang, length, unit, 2) { bu, bv, bw ->
-                    add(bu, bv, bw, GLASS_DARK, StrokeKind.GLASS)
+        // 1) Dead pixels down the crease from the top to the pop point.
+        //    Low severity = sparse dead dots/short runs; high = a solid, ragged dead band.
+        if (spec.deadLine) {
+            val bandW = unit * (1.2f + 14f * s.pow(1.6f))
+            if (s < 0.2f) {
+                val dots = 6 + (s * 60).toInt()
+                repeat(dots) {
+                    val u = r.nextFloat() * pu
+                    val l = unit * (1f + r.nextFloat() * 6f) + len * 0.03f * r.nextFloat() * s * 5
+                    vLine(crease + (r.nextFloat() - 0.5f) * unit, u, min(pu, u + l), unit * 1.3f, BLACK, StrokeKind.DEAD)
+                }
+            } else {
+                var u = 0f
+                while (u < pu) {
+                    val seg = len * (0.03f + r.nextFloat() * 0.12f)
+                    val end = min(pu, u + seg)
+                    val bw = bandW * (0.75f + r.nextFloat() * 0.5f)
+                    vLine(crease + dir * bw * 0.15f * (r.nextFloat() - 0.3f), u, end, bw, BLACK, StrokeKind.DEAD)
+                    u = end + (if (r.nextFloat() < 0.25f * (1 - s)) len * r.nextFloat() * 0.02f else 0f)
                 }
             }
+            // Thin green column hugging the dead band (driver line), flickers.
+            val gv = crease + dir * (bandW / 2f + unit * (1.5f + r.nextFloat() * 1.5f))
+            vLine(gv, pu * r.nextFloat() * 0.5f, pu, unit, GREEN, StrokeKind.BRIGHT, flicker = true)
         }
 
-        // 5) Spiderweb at the impact point.
-        if (s > 0.6f) {
-            web(r, pu, crease, unit, s) { bu, bv, bw -> add(bu, bv, bw, GLASS_DARK, StrokeKind.GLASS) }
+        // 2) Straight bright rows from the crease to the edge.
+        val rows = 1 + (s * 11f + r.nextFloat() * 1.5f).toInt()
+        val spread = len * (0.015f + 0.22f * s)
+        for (i in 0 until rows) {
+            val du = if (i == 0) 0f else r.nextFloat().pow(1.3f) * spread * (if (r.nextFloat() < 0.85f) 1f else -0.3f)
+            val u = (pu + du).coerceIn(0f, len)
+            val thick = r.nextFloat() < 0.08f + 0.22f * s
+            val width = if (thick) unit * (3f + r.nextFloat() * 6f * s) else unit * (1f + r.nextFloat() * (0.6f + 1.4f * s))
+            hLine(u, crease, edge, width, LINE_COLORS[r.nextInt(LINE_COLORS.size)], StrokeKind.BRIGHT, flicker = r.nextFloat() < 0.3f)
         }
+
+        // 3) Vertical lines from the pop point down to the bottom, next to the crease.
+        val cols = if (s < 0.15f) 0 else 1 + (s * 4f).toInt()
+        repeat(cols) {
+            val v = crease + dir * unit * (1f + r.nextFloat() * (6f + 40f * s))
+            val start = pu + len * 0.04f * r.nextFloat()
+            vLine(v, start, len, unit * (1f + r.nextFloat() * s), LINE_COLORS[r.nextInt(LINE_COLORS.size)], StrokeKind.BRIGHT, flicker = r.nextFloat() < 0.3f)
+        }
+
+        // 4) Stuck sub-pixels: a cluster around the pop point plus a few strays along the crease.
+        val cluster = 3 + (s * 40f).toInt()
+        repeat(cluster) {
+            val u = pu + (r.nextGaussian() * unit * (4 + 18 * s)).toFloat()
+            val v = crease + dir * kotlin.math.abs(r.nextGaussian() * unit * (3 + 14 * s)).toFloat()
+            stuck(r, u, v, unit, ::add)
+        }
+        repeat(2 + (s * 10f).toInt()) {
+            stuck(r, r.nextFloat() * len, crease + (r.nextFloat() - 0.5f) * unit * 20f, unit, ::add)
+        }
+        return CrackScene(spec.width, spec.height, out)
     }
 
-    /** Non-foldable / outer screen: a dropped-phone corner spiderweb plus a couple of OLED lines. */
-    private fun corner(out: MutableList<Stroke>, r: Random, w: Float, h: Float, s: Float, unit: Float, deadLine: Boolean) {
-        val cx = w * (0.78f + r.nextFloat() * 0.12f)
-        val cy = h * (0.84f + r.nextFloat() * 0.08f)
-        val sink: (FloatArray, FloatArray, Float) -> Unit = { a, b, bw -> out += Stroke(a, b, bw, GLASS_DARK, StrokeKind.GLASS) }
-        web(r, cx, cy, unit, max(0.45f, s), sink)
-        val rays = 3 + (s * 8f).toInt()
-        repeat(rays) {
-            val ang = PI + (r.nextDouble() - 0.3) * PI * 0.9
-            branch(r, cx, cy, ang, max(w, h) * (0.15f + 0.5f * s * r.nextFloat()), unit, 2, sink)
-        }
-        val n = (s * 4f).toInt()
-        repeat(n) {
-            val y = cy - h * 0.15f * r.nextFloat()
-            out += Stroke(floatArrayOf(0f, cx), floatArrayOf(y, y), unit * (1f + 3f * r.nextFloat()), BRIGHT_COLORS[r.nextInt(BRIGHT_COLORS.size)], StrokeKind.BRIGHT, r.nextFloat() < 0.4f)
-        }
-        if (deadLine) {
-            val x = cx - unit * 4f
-            out += Stroke(floatArrayOf(x, x), floatArrayOf(0f, h), unit * 1.2f, DEAD_GREEN, StrokeKind.DEAD, true)
-        }
-    }
-
-    private fun web(r: Random, a0: Float, b0: Float, unit: Float, s: Float, sink: (FloatArray, FloatArray, Float) -> Unit) {
-        val k = 8 + (s * 10f).toInt()
-        val radii = FloatArray(k) { unit * (50f + r.nextFloat() * (120f + 260f * s)) }
-        val angles = DoubleArray(k) { (it + r.nextDouble() * 0.6) * 2 * PI / k }
-        val rings = 2 + (s * 3f).toInt()
-        val ringPts = Array(rings) { FloatArray(k * 2) }
-        for (i in 0 until k) {
-            val pa = ArrayList<Float>(); val pb = ArrayList<Float>()
-            var ang = angles[i]
-            val steps = 10
-            var ca = a0; var cb = b0
-            pa += ca; pb += cb
-            for (j in 1..steps) {
-                ang += (r.nextDouble() - 0.5) * 0.25
-                val stepLen = radii[i] / steps
-                ca += (cos(ang) * stepLen).toFloat(); cb += (sin(ang) * stepLen).toFloat()
-                pa += ca; pb += cb
-            }
-            sink(pa.toFloatArray(), pb.toFloatArray(), unit * (0.9f + 0.8f * r.nextFloat()))
-            for (ring in 0 until rings) {
-                val f = (ring + 1f) / (rings + 1f) * (0.85f + r.nextFloat() * 0.3f)
-                val idx = (f * steps).roundToInt().coerceIn(1, steps)
-                ringPts[ring][i * 2] = pa[idx]; ringPts[ring][i * 2 + 1] = pb[idx]
-            }
-        }
-        // Concentric fractures between neighbouring rays (with gaps, like real glass).
-        for (ring in 0 until rings) for (i in 0 until k) {
-            if (r.nextFloat() < 0.25f) continue
-            val j = (i + 1) % k
-            val p = ringPts[ring]
-            val ma = (p[i * 2] + p[j * 2]) / 2f + (r.nextFloat() - 0.5f) * unit * 10f
-            val mb = (p[i * 2 + 1] + p[j * 2 + 1]) / 2f + (r.nextFloat() - 0.5f) * unit * 10f
-            sink(floatArrayOf(p[i * 2], ma, p[j * 2]), floatArrayOf(p[i * 2 + 1], mb, p[j * 2 + 1]), unit * 0.8f)
-        }
-        // Tiny chips at the centre.
-        repeat(6) {
-            val ang = r.nextDouble() * 2 * PI
-            val l = unit * (6f + r.nextFloat() * 14f)
-            sink(floatArrayOf(a0, a0 + (cos(ang) * l).toFloat()), floatArrayOf(b0, b0 + (sin(ang) * l).toFloat()), unit * 1.6f)
-        }
-    }
-
-    private fun branch(
-        r: Random, a0: Float, b0: Float, angle0: Double, length: Float, unit: Float, depth: Int,
-        sink: (FloatArray, FloatArray, Float) -> Unit,
+    private fun stuck(
+        r: Random, u: Float, v: Float, unit: Float,
+        add: (FloatArray, FloatArray, Float, Int, StrokeKind, Boolean) -> Unit,
     ) {
-        val steps = max(3, (length / (unit * 14f)).toInt())
-        val stepLen = length / steps
-        val pa = FloatArray(steps + 1); val pb = FloatArray(steps + 1)
-        pa[0] = a0; pb[0] = b0
-        var ang = angle0
-        for (i in 1..steps) {
-            ang += (r.nextDouble() - 0.5) * 0.6
-            pa[i] = pa[i - 1] + (cos(ang) * stepLen).toFloat()
-            pb[i] = pb[i - 1] + (sin(ang) * stepLen).toFloat()
-            if (depth > 0 && r.nextFloat() < 0.10f) {
-                branch(r, pa[i], pb[i], ang + (if (r.nextBoolean()) 1 else -1) * (0.4 + r.nextDouble() * 0.6),
-                    length * (0.25f + r.nextFloat() * 0.35f), unit, depth - 1, sink)
-            }
-        }
-        sink(pa, pb, unit * (0.6f + 0.6f * depth / 2f + 0.3f * r.nextFloat()))
+        val size = unit * (1f + r.nextFloat())
+        add(floatArrayOf(u - size / 2, u + size / 2), floatArrayOf(v, v), size, SUBPIXELS[r.nextInt(SUBPIXELS.size)], StrokeKind.PIXEL, r.nextFloat() < 0.2f)
     }
 }

@@ -20,7 +20,9 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
+import android.util.Log
 import com.blankspeaker.iduo.crack.CreaseOrientation
+import com.blankspeaker.iduo.crack.Posture
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -137,11 +139,18 @@ class CrackService : LifecycleService() {
                 runCatching {
                     WindowInfoTracker.getOrCreate(uiCtx).windowLayoutInfo(uiCtx).collect { info ->
                         val fold = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
+                        Log.i("iDuo", "layout: ${info.displayFeatures}")
                         v.setHinge(fold?.let {
+                            val posture = when (it.state) {
+                                FoldingFeature.State.FLAT -> Posture.FLAT
+                                FoldingFeature.State.HALF_OPENED -> Posture.HALF_OPENED
+                                else -> null
+                            } ?: return@let null
                             if (it.orientation == FoldingFeature.Orientation.VERTICAL)
-                                ScreenHinge(CreaseOrientation.VERTICAL, it.bounds.exactCenterX())
-                            else ScreenHinge(CreaseOrientation.HORIZONTAL, it.bounds.exactCenterY())
+                                ScreenHinge(CreaseOrientation.VERTICAL, it.bounds.exactCenterX(), posture)
+                            else ScreenHinge(CreaseOrientation.HORIZONTAL, it.bounds.exactCenterY(), posture)
                         })
+                        Log.i("iDuo", "placement: ${v.placement}")
                         publishPlacement()
                     }
                 }

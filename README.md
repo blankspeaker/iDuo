@@ -7,34 +7,43 @@ inner screen failing right at the hinge: a line of dead pixels running down the 
 bright stuck-on pixel rows shooting from the crease to the edge of the display. iDuo recreates that look on
 **your** foldable: Pixel Fold, Pixel 9/10 Pro Fold, Galaxy Z Fold, OnePlus Open, and so on.
 
-It's a joke. Nothing is broken. iDuo draws a picture on top of your screen, every tap passes straight through
-it, and one tap on **Stop** makes it disappear.
+It's a joke. Nothing is broken. iDuo draws fake dead and stuck pixels on top of your screen, only while the
+phone is **unfolded**, and every tap passes straight through. Fold the phone and the damage is gone. Unfold it
+and the damage is back. One tap on **Stop** "repairs" the screen.
 
-![Hairline → medium → shattered](docs/preview-severity-strip.png)
+![Low → medium → max](docs/preview-severity-strip.png)
 
-> Previews are rendered on a desktop JVM from the **same crack-drawing code the app uses** (`core/`),
-> laid over a mock home screen. They're not phone screenshots.
+> These previews are **computer renders** of the app's own drawing code (`core/`) on a mock home screen.
+> They're not phone screenshots.
 
-## Features
+## What it draws (pixel damage only)
 
-- 🔍 **Finds your hinge.** It uses Jetpack WindowManager (`FoldingFeature`) to locate the crease and lines
-  the crack up on it, vertical or horizontal, and it moves the crack when you rotate, fold, or unfold.
-- 🎲 **Procedural and different every time**, made of:
-  - a dead-pixel column down the crease
-  - a greenish "dead line"
-  - bright OLED rows (with RGB fringing) running from the crease to the edge
-  - a bright column below the impact
-  - at higher severity, a real-looking glass fracture with branching hairlines and a spiderweb
-- 🎚️ **Severity slider** that goes from *hairline* to *"it's just the crease"* to *AppleCare territory* to
-  *$999 inner screen* to *shattered*.
-- ✨ **Flicker** and **dead-pixel line** toggles, plus **Regenerate** for a fresh crack.
-- 👆 **Your phone still works.** The overlay is `FLAG_NOT_TOUCHABLE | FLAG_NOT_FOCUSABLE`.
-- 🔔 **A persistent notification with a Stop button**, so you can always "repair" the screen.
-- 🙅 **No ads, no internet permission, and no data collection.**
+It copies the reported failure. There's no fake glass and no cartoon cracks.
 
-| Pixel Fold rotated (horizontal hinge) | Galaxy Z Fold-style | Outer screen / no hinge (corner mode) |
-|---|---|---|
-| ![](docs/preview-fold-rotated.png) | ![](docs/preview-zfold-medium.png) | ![](docs/preview-outer-corner.png) |
+- ⬛ **A dead-pixel column down the crease**, from the top to the point where the panel "popped", 50–62% of
+  the way down. At low severity it's a few dead dots. At high severity it's a wide, ragged dead band.
+- 🌈 **Straight stuck-on pixel rows** in white, green, and magenta, running from the crease to the edge of
+  the screen.
+- ↓ **Vertical lines from the pop point down to the bottom**, next to the crease.
+- ✨ **Stuck sub-pixels**: a cluster where the panel popped, plus a few strays along the crease.
+- 🎚️ **Severity slider**, from *a few dead pixels* to *AppleCare territory* to *$999 inner screen* to
+  *dead band*.
+- **Flicker** and **dead-pixel line** toggles, plus **Regenerate** for a new random pattern.
+
+## Only when unfolded
+
+iDuo uses Jetpack WindowManager's `FoldingFeature`. It draws only when **all** of these are true:
+
+- a hinge is reported, and it's `FLAT` or `HALF_OPENED`
+- the hinge sits inside the overlay
+- the screen is the big inner display (its shortest side is at least 560 dp)
+
+On the cover screen, with no hinge reported, or on a regular phone, the service stays running but draws
+nothing. The logic lives in `FoldGate` and is unit-tested (`./gradlew :core:test`).
+
+| Rotated (horizontal hinge) | Folded / cover screen |
+|---|---|
+| ![](docs/preview-inner-rotated.png) | ![](docs/preview-cover-folded.png) |
 
 ## Install
 
@@ -44,29 +53,21 @@ it, and one tap on **Stop** makes it disappear.
 3. Open **iDuo** and tap **Grant "Display over other apps"**. In the settings screen that opens, turn iDuo
    **on**, then go back.
 4. Allow notifications (Android 13+). That's how you get the Stop button.
-5. Unfold your phone, flip **Crack my screen**, and hand it to a friend. 😈
+5. Flip **Break my inner screen**, unfold the phone, and hand it to a friend. 😈
 
 To stop it, tap **Stop** in the notification or turn off the switch in the app.
 
-Requires Android 10 (API 29) or newer. Automatic hinge detection needs Android 11+ and a device that reports
-a `FoldingFeature`.
-
-## How the crack is placed
-
-| Situation | What iDuo draws |
-|---|---|
-| Unfolded, hinge reported | Crack centred on the `FoldingFeature` bounds. Bright rows run toward the larger side. |
-| Rotated | The hinge is re-read and the crack is rebuilt in the new orientation. |
-| Inner screen, no hinge reported | It guesses a vertical crease at the screen centre. |
-| Folded / outer screen / regular phone | A "dropped it" spiderweb in the lower corner. |
+Requires a foldable on Android 11+ that reports a `FoldingFeature` (Pixel Fold / 9 Pro Fold / 10 Pro Fold,
+Galaxy Z Fold, OnePlus Open, and similar). It installs on Android 10, but nothing is drawn there.
 
 ## Limitations
 
 - On Android 12+ the system only lets touches pass through overlays that are at most 80% opaque, so the
-  crack is drawn at 80%. It still looks right on a bright screen.
+  damage is drawn at 80% opacity.
+- Updating the app stops a running overlay. Turn it back on in the app.
 - Android doesn't let regular apps draw over some system surfaces, like the lock screen, parts of Settings,
   and the permission dialogs.
-- If Android kills the app, the crack just goes away. It does not restart itself.
+- If Android kills the app, the damage goes away. It does not restart itself.
 
 ## Build
 
@@ -86,7 +87,7 @@ keyPassword=...
 
 Then run `./gradlew :app:assembleRelease`.
 
-Project layout: `core/` is the pure-Kotlin crack generator and painter (shared by the app and the preview
+Project layout: `core/` is the pure-Kotlin damage generator, painter, and fold gate (shared by the app and the preview
 renderer). `app/` is the Android app: overlay service, WindowManager hinge tracking, and UI. `preview/` is the
 JVM/AWT renderer for the README images.
 

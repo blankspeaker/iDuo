@@ -12,13 +12,16 @@ import com.blankspeaker.iduo.crack.CrackPainter
 import com.blankspeaker.iduo.crack.CrackScene
 import com.blankspeaker.iduo.crack.CrackSpec
 import com.blankspeaker.iduo.crack.CreaseOrientation
+import com.blankspeaker.iduo.crack.FoldGate
+import com.blankspeaker.iduo.crack.Hinge
+import com.blankspeaker.iduo.crack.Posture
 import com.blankspeaker.iduo.crack.LineSurface
 import com.blankspeaker.iduo.crack.Stroke
 import java.util.IdentityHashMap
 import kotlin.random.Random
 
 /** Hinge position in screen coordinates (centre of the FoldingFeature bounds). */
-data class ScreenHinge(val orientation: CreaseOrientation, val screenPos: Float)
+data class ScreenHinge(val orientation: CreaseOrientation, val screenPos: Float, val posture: Posture)
 
 class CanvasSurface : LineSurface {
     var canvas: Canvas? = null
@@ -41,7 +44,7 @@ class CanvasSurface : LineSurface {
     }
 }
 
-/** Full-screen, non-interactive view that draws the fake crack. */
+/** Full-screen, non-interactive view that draws the fake pixel damage, only while unfolded. */
 @SuppressLint("ViewConstructor")
 class CrackOverlayView(context: Context) : View(context) {
     private var settings = CrackSettings()
@@ -53,13 +56,17 @@ class CrackOverlayView(context: Context) : View(context) {
     private val loc = IntArray(2)
 
     /** Human readable description of where the crack went, for the status line. */
-    var placement: String = "waiting for layout"
+    var placement: String = "waiting for hinge"
+        private set
+
+    /** True while damage is actually being drawn (phone open on the inner display). */
+    var showing: Boolean = false
         private set
 
     private val tick = object : Runnable {
         override fun run() {
             val sc = scene ?: return
-            if (!settings.flicker) return
+            if (!settings.flicker || !showing) return
             for (s in sc.strokes) if (s.flicker) {
                 flickerAlpha[s] = if (Random.nextFloat() < 0.15f) 0f else 0.55f + 0.45f * Random.nextFloat()
             }
@@ -104,7 +111,7 @@ class CrackOverlayView(context: Context) : View(context) {
 
     private fun restartFlicker() {
         removeCallbacks(tick)
-        if (settings.flicker && isAttachedToWindow) post(tick)
+        if (settings.flicker && showing && isAttachedToWindow) post(tick)
     }
 
     private fun rebuild() {
@@ -113,24 +120,34 @@ class CrackOverlayView(context: Context) : View(context) {
         if (w <= 0 || h <= 0) return
         getLocationOnScreen(loc)
         val hg = hinge
-        val pos = hg?.let {
-            if (it.orientation == CreaseOrientation.VERTICAL) it.screenPos - loc[0] else it.screenPos - loc[1]
-        }?.takeIf { p -> p > 0f && p < (if (hg.orientation == CreaseOrientation.VERTICAL) w else h) }
+        val local = hg?.let {
+            val p = if (it.orientation == CreaseOrientation.VERTICAL) it.screenPos - loc[0] else it.screenPos - loc[1]
+            Hinge(it.orientation, p, it.posture)
+        }
+        showing = FoldGate.shouldShow(local, w, h, resources.displayMetrics.density)
+        placement = when {
+            showing -> "showing: hinge ${local!!.orientation.name.lowercase()} at ${local.pos.toInt()}px, ${local.posture.name.lowercase()} (${w}x$h)"
+            local == null -> "hidden: no hinge reported (folded / cover screen / not a foldable)"
+            else -> "hidden: not on the open inner display (${w}x$h, ${local.posture.name.lowercase()})"
+        }
+        if (!showing) {
+            scene = null
+            removeCallbacks(tick)
+            cache?.recycle()
+            cache = null
+            invalidate()
+            return
+        }
         val spec = CrackSpec(
             width = w, height = h,
-            orientation = hg?.orientation ?: CreaseOrientation.VERTICAL,
-            creasePos = pos,
+            orientation = local!!.orientation,
+            creasePos = local.pos,
             severity = settings.severity / 100f,
             deadLine = settings.deadLine,
             seed = settings.seed,
         )
         val sc = CrackGenerator.generate(spec)
         scene = sc
-        placement = when {
-            pos != null -> "hinge ${hg!!.orientation.name.lowercase()} at ${pos.toInt()}px (${w}x$h)"
-            sc.mode.name == "HINGE_GUESS" -> "no hinge reported: guessed vertical centre (${w}x$h)"
-            else -> "no hinge / outer screen: corner impact (${w}x$h)"
-        }
 
         var bmp = cache
         if (bmp == null || bmp.width != w || bmp.height != h) {
@@ -150,6 +167,7 @@ class CrackOverlayView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (!showing) return
         cache?.let { canvas.drawBitmap(it, 0f, 0f, null) }
         val sc = scene ?: return
         if (settings.flicker) {
