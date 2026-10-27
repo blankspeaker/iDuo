@@ -23,6 +23,7 @@ import androidx.window.layout.WindowInfoTracker
 import android.util.Log
 import com.blankspeaker.iduo.crack.CreaseOrientation
 import com.blankspeaker.iduo.crack.Posture
+import com.blankspeaker.iduo.crack.PanelTransform
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -146,9 +147,12 @@ class CrackService : LifecycleService() {
                                 FoldingFeature.State.HALF_OPENED -> Posture.HALF_OPENED
                                 else -> null
                             } ?: return@let null
-                            if (it.orientation == FoldingFeature.Orientation.VERTICAL)
-                                ScreenHinge(CreaseOrientation.VERTICAL, it.bounds.exactCenterX(), posture)
-                            else ScreenHinge(CreaseOrientation.HORIZONTAL, it.bounds.exactCenterY(), posture)
+                            val (rot, w0, h0) = naturalFrame(uiCtx) ?: return@let null
+                            val (o, pos) = if (it.orientation == FoldingFeature.Orientation.VERTICAL)
+                                CreaseOrientation.VERTICAL to it.bounds.exactCenterX()
+                            else CreaseOrientation.HORIZONTAL to it.bounds.exactCenterY()
+                            val (no, np) = PanelTransform.hingeToNatural(o, pos, rot, w0, h0)
+                            PanelHinge(no, np, posture, w0, h0)
                         }
                         layoutSeen = true
                         applyHinge()
@@ -160,7 +164,7 @@ class CrackService : LifecycleService() {
         v.post { publishPlacement() }
     }
 
-    private var featureHinge: ScreenHinge? = null
+    private var featureHinge: PanelHinge? = null
     private var layoutSeen = false
     private var deviceOpen: Boolean? = null
     private var deviceCallback: Any? = null
@@ -174,19 +178,25 @@ class CrackService : LifecycleService() {
     private fun applyHinge() {
         val v = view ?: return
         val hinge = featureHinge ?: if (deviceOpen == true) centredHinge() else null
-        v.setHinge(hinge)
+        v.setPanel(hinge)
         Log.i(TAG, "hinge=$hinge deviceOpen=$deviceOpen -> ${v.placement}")
         publishPlacement()
     }
 
-    private fun centredHinge(): ScreenHinge? {
-        val ctx = uiContextRef ?: return null
+    /** Current rotation and the natural (ROTATION_0) panel size, from the full-screen window metrics. */
+    private fun naturalFrame(ctx: Context): Triple<Int, Int, Int>? {
         if (Build.VERSION.SDK_INT < 30) return null
         val bounds = ctx.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
         val rot = ctx.display?.rotation ?: 0
-        return if (rot == android.view.Surface.ROTATION_0 || rot == android.view.Surface.ROTATION_180)
-            ScreenHinge(CreaseOrientation.VERTICAL, bounds.exactCenterX(), Posture.FLAT)
-        else ScreenHinge(CreaseOrientation.HORIZONTAL, bounds.exactCenterY(), Posture.FLAT)
+        val (w0, h0) = PanelTransform.naturalSize(rot, bounds.width(), bounds.height())
+        return Triple(rot, w0, h0)
+    }
+
+    /** Fallback: a centred crease, vertical in the panel's natural orientation. */
+    private fun centredHinge(): PanelHinge? {
+        val ctx = uiContextRef ?: return null
+        val (_, w0, h0) = naturalFrame(ctx) ?: return null
+        return PanelHinge(CreaseOrientation.VERTICAL, w0 / 2f, Posture.FLAT, w0, h0)
     }
 
     /** Hinge-angle sensor (API 30+, present on foldables, absent on tablets/phones). */
