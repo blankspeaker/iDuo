@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.IDuo" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:colorAccent">#FF7FD8FF</item>
+        <item name="android:windowBackground">#FF0E1116</item>
+        <item name="android:statusBarColor">#FF0E1116</item>
+        <item name="android:navigationBarColor">#FF0E1116</item>
+    </style>
+</resources>

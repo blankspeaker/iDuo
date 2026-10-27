@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- unfolded phone slab -->
+    <path android:fillColor="#FF2A3444" android:strokeColor="#FF7FD8FF" android:strokeWidth="1.6"
+        android:pathData="M32,30 h44 a5,5 0 0 1 5,5 v38 a5,5 0 0 1 -5,5 h-44 a5,5 0 0 1 -5,-5 v-38 a5,5 0 0 1 5,-5 z" />
+    <!-- crease -->
+    <path android:strokeColor="#66FFFFFF" android:strokeWidth="0.8" android:pathData="M54,31 V77" />
+    <!-- bright OLED lines from the crease to the edge -->
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6" android:pathData="M54,57 H80.2" />
+    <path android:strokeColor="#FFBFF4FF" android:strokeWidth="0.9" android:pathData="M54,60 H80.2" />
+    <path android:strokeColor="#FFFFC6EF" android:strokeWidth="0.7" android:pathData="M54,62.5 H80.2" />
+    <!-- glass crack / spiderweb at the hinge -->
+    <path android:strokeColor="#FFEFF6FF" android:strokeWidth="1.1" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M54,56 L52.5,50 L55,45 L53,39 M54,56 L56,62 L53.5,68 L55,74 M54,56 L47,52 L41,53 M54,56 L46,60 L40,66 M54,56 L60,51 L66,49 M54,56 L49,46 M54,56 L59,64 L64,70" />
+    <path android:strokeColor="#99EFF6FF" android:strokeWidth="0.6"
+        android:pathData="M50.5,53.2 L52.8,51 L56.6,53.3 L57.4,58.9 L54.9,60 L50.6,58.2 Z" />
+</vector>
