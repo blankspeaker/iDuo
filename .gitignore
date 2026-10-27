@@ -18,3 +18,7 @@ keystore.properties
 *.keystore
 *.p12
 keystore/
+
+# Reference photos are third-party / copyrighted - never commit
+refs/
+compare/

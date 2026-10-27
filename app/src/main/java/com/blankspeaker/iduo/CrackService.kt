@@ -36,6 +36,7 @@ class CrackService : LifecycleService() {
         const val ACTION_STOP = "com.blankspeaker.iduo.STOP"
         private const val CHANNEL = "crack"
         private const val NOTIF_ID = 1
+        private const val TAG = "iDuo"
 
         private val _running = MutableStateFlow(false)
         val running: StateFlow<Boolean> = _running
@@ -85,8 +86,7 @@ class CrackService : LifecycleService() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_crack)
-            .setContentTitle(getString(R.string.notif_title))
-            .setContentText(getString(R.string.notif_text))
+            .setContentTitle(getString(R.string.app_name))
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, getString(R.string.stop), stop).build())
@@ -139,8 +139,8 @@ class CrackService : LifecycleService() {
                 runCatching {
                     WindowInfoTracker.getOrCreate(uiCtx).windowLayoutInfo(uiCtx).collect { info ->
                         val fold = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull()
-                        Log.i("iDuo", "layout: ${info.displayFeatures}")
-                        v.setHinge(fold?.let {
+                        Log.i(TAG, "layout: ${info.displayFeatures}")
+                        featureHinge = fold?.let {
                             val posture = when (it.state) {
                                 FoldingFeature.State.FLAT -> Posture.FLAT
                                 FoldingFeature.State.HALF_OPENED -> Posture.HALF_OPENED
@@ -149,14 +149,66 @@ class CrackService : LifecycleService() {
                             if (it.orientation == FoldingFeature.Orientation.VERTICAL)
                                 ScreenHinge(CreaseOrientation.VERTICAL, it.bounds.exactCenterX(), posture)
                             else ScreenHinge(CreaseOrientation.HORIZONTAL, it.bounds.exactCenterY(), posture)
-                        })
-                        Log.i("iDuo", "placement: ${v.placement}")
-                        publishPlacement()
+                        }
+                        layoutSeen = true
+                        applyHinge()
                     }
-                }
+                }.onFailure { Log.w(TAG, "WindowInfoTracker failed, using device-state fallback", it) }
             }
         }
+        if (Build.VERSION.SDK_INT >= 30) registerHingeSensor(uiCtx)
         v.post { publishPlacement() }
+    }
+
+    private var featureHinge: ScreenHinge? = null
+    private var layoutSeen = false
+    private var deviceOpen: Boolean? = null
+    private var deviceCallback: Any? = null
+    private var uiContextRef: Context? = null
+
+    /**
+     * FoldingFeature wins. If WindowManager reports nothing for the overlay window, fall back to the
+     * hinge-angle sensor: opened >= 60 degrees means a centred crease (vertical in natural orientation).
+     * FoldGate still requires a >=560dp screen, so the cover screen always stays clean.
+     */
+    private fun applyHinge() {
+        val v = view ?: return
+        val hinge = featureHinge ?: if (deviceOpen == true) centredHinge() else null
+        v.setHinge(hinge)
+        Log.i(TAG, "hinge=$hinge deviceOpen=$deviceOpen -> ${v.placement}")
+        publishPlacement()
+    }
+
+    private fun centredHinge(): ScreenHinge? {
+        val ctx = uiContextRef ?: return null
+        if (Build.VERSION.SDK_INT < 30) return null
+        val bounds = ctx.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
+        val rot = ctx.display?.rotation ?: 0
+        return if (rot == android.view.Surface.ROTATION_0 || rot == android.view.Surface.ROTATION_180)
+            ScreenHinge(CreaseOrientation.VERTICAL, bounds.exactCenterX(), Posture.FLAT)
+        else ScreenHinge(CreaseOrientation.HORIZONTAL, bounds.exactCenterY(), Posture.FLAT)
+    }
+
+    /** Hinge-angle sensor (API 30+, present on foldables, absent on tablets/phones). */
+    private fun registerHingeSensor(ctx: Context) {
+        uiContextRef = ctx
+        runCatching {
+            val sm = getSystemService(android.hardware.SensorManager::class.java) ?: return
+            val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_HINGE_ANGLE) ?: return
+            val l = object : android.hardware.SensorEventListener {
+                override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                    val open = e.values[0] >= 60f
+                    if (open != deviceOpen) {
+                        deviceOpen = open
+                        Log.i(TAG, "hinge angle ${e.values[0]} -> open=$open")
+                        applyHinge()
+                    }
+                }
+                override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+            }
+            sm.registerListener(l, sensor, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+            deviceCallback = l
+        }.onFailure { Log.w(TAG, "hinge sensor unavailable", it) }
     }
 
     private fun publishPlacement() {
@@ -165,6 +217,9 @@ class CrackService : LifecycleService() {
 
     override fun onDestroy() {
         layoutJob?.cancel()
+        (deviceCallback as? android.hardware.SensorEventListener)?.let { l ->
+            runCatching { getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(l) }
+        }
         view?.let { v -> runCatching { wm?.removeView(v) } }
         view = null
         _running.value = false

@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.view.View
 import com.blankspeaker.iduo.crack.CrackGenerator
 import com.blankspeaker.iduo.crack.CrackPainter
@@ -15,32 +14,23 @@ import com.blankspeaker.iduo.crack.CreaseOrientation
 import com.blankspeaker.iduo.crack.FoldGate
 import com.blankspeaker.iduo.crack.Hinge
 import com.blankspeaker.iduo.crack.Posture
-import com.blankspeaker.iduo.crack.LineSurface
-import com.blankspeaker.iduo.crack.Stroke
+import com.blankspeaker.iduo.crack.PixelRect
+import com.blankspeaker.iduo.crack.PixelSurface
 import java.util.IdentityHashMap
 import kotlin.random.Random
 
 /** Hinge position in screen coordinates (centre of the FoldingFeature bounds). */
 data class ScreenHinge(val orientation: CreaseOrientation, val screenPos: Float, val posture: Posture)
 
-class CanvasSurface : LineSurface {
+class CanvasSurface : PixelSurface {
     var canvas: Canvas? = null
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeJoin = Paint.Join.ROUND
-    }
-    private val path = Path()
+    // No anti-aliasing: every rect lands on whole device pixels.
+    private val paint = Paint().apply { style = Paint.Style.FILL; isAntiAlias = false; isDither = false }
 
-    override fun polyline(xs: FloatArray, ys: FloatArray, width: Float, argb: Int, roundCap: Boolean) {
+    override fun fill(left: Int, top: Int, right: Int, bottom: Int, argb: Int) {
         val c = canvas ?: return
-        if (xs.size < 2) return
-        path.rewind()
-        path.moveTo(xs[0], ys[0])
-        for (i in 1 until xs.size) path.lineTo(xs[i], ys[i])
         paint.color = argb
-        paint.strokeWidth = width
-        paint.strokeCap = if (roundCap) Paint.Cap.ROUND else Paint.Cap.BUTT
-        c.drawPath(path, paint)
+        c.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), paint)
     }
 }
 
@@ -52,7 +42,7 @@ class CrackOverlayView(context: Context) : View(context) {
     private var scene: CrackScene? = null
     private var cache: Bitmap? = null
     private val surface = CanvasSurface()
-    private val flickerAlpha = IdentityHashMap<Stroke, Float>()
+    private val flickerAlpha = IdentityHashMap<PixelRect, Float>()
     private val loc = IntArray(2)
 
     /** Human readable description of where the crack went, for the status line. */
@@ -67,8 +57,9 @@ class CrackOverlayView(context: Context) : View(context) {
         override fun run() {
             val sc = scene ?: return
             if (!settings.flicker || !showing) return
-            for (s in sc.strokes) if (s.flicker) {
-                flickerAlpha[s] = if (Random.nextFloat() < 0.15f) 0f else 0.55f + 0.45f * Random.nextFloat()
+            // Subtle: stuck rows dim and brighten a little, rarely drop out for a frame.
+            for (r in sc.rects) if (r.flicker) {
+                flickerAlpha[r] = if (Random.nextFloat() < 0.06f) 0.2f else 0.75f + 0.25f * Random.nextFloat()
             }
             invalidate()
             postDelayed(this, 40L + Random.nextLong(360L))
