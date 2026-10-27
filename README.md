@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" align="right" alt="iDuo icon" />
+
 # iDuo 📱💥
 
 **Give your Android foldable the authentic 2026 hinge-failure look.**

@@ -1,18 +1,28 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- unfolded phone slab -->
-    <path android:fillColor="#FF2A3444" android:strokeColor="#FF7FD8FF" android:strokeWidth="1.6"
-        android:pathData="M32,30 h44 a5,5 0 0 1 5,5 v38 a5,5 0 0 1 -5,5 h-44 a5,5 0 0 1 -5,-5 v-38 a5,5 0 0 1 5,-5 z" />
-    <!-- crease -->
-    <path android:strokeColor="#66FFFFFF" android:strokeWidth="0.8" android:pathData="M54,31 V77" />
-    <!-- bright OLED lines from the crease to the edge -->
-    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6" android:pathData="M54,57 H80.2" />
-    <path android:strokeColor="#FFBFF4FF" android:strokeWidth="0.9" android:pathData="M54,60 H80.2" />
-    <path android:strokeColor="#FFFFC6EF" android:strokeWidth="0.7" android:pathData="M54,62.5 H80.2" />
-    <!-- glass crack / spiderweb at the hinge -->
-    <path android:strokeColor="#FFEFF6FF" android:strokeWidth="1.1" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M54,56 L52.5,50 L55,45 L53,39 M54,56 L56,62 L53.5,68 L55,74 M54,56 L47,52 L41,53 M54,56 L46,60 L40,66 M54,56 L60,51 L66,49 M54,56 L49,46 M54,56 L59,64 L64,70" />
-    <path android:strokeColor="#99EFF6FF" android:strokeWidth="0.6"
-        android:pathData="M50.5,53.2 L52.8,51 L56.6,53.3 L57.4,58.9 L54.9,60 L50.6,58.2 Z" />
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="1.136" android:scaleY="1.136">
+    <!-- Unfolded foldable: dark slab inside the 66dp safe zone -->
+    <path android:strokeColor="#FF7D93A8" android:strokeWidth="1.4"
+        android:pathData="M39,32 h30 a7,7 0 0 1 7,7 v30 a7,7 0 0 1 -7,7 h-30 a7,7 0 0 1 -7,-7 v-30 a7,7 0 0 1 7,-7 z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear"
+                android:startX="32" android:startY="32" android:endX="76" android:endY="76"
+                android:startColor="#FF33475C" android:endColor="#FF161E27" />
+        </aapt:attr>
+    </path>
+    <!-- Hinge line, lower half faint -->
+    <path android:fillColor="#40FFFFFF" android:pathData="M53.6,62 h0.8 v13.3 h-0.8 z" />
+    <!-- Dead pixels on the crease from the top edge to the failure point -->
+    <path android:fillColor="#FF000000" android:pathData="M53.1,32.7 h1.8 v22.5 h-1.8 z" />
+    <!-- The band: one block of stuck rows, hinge -> right edge -->
+    <path android:fillColor="#FFFF8FE6" android:pathData="M54.9,55 h20.4 v1.2 h-20.4 z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54.9,56.2 h20.4 v1.6 h-20.4 z" />
+    <path android:fillColor="#FF7FF3FF" android:pathData="M54.9,57.8 h20.4 v2.2 h-20.4 z" />
+    <path android:fillColor="#FFC4FFD2" android:pathData="M54.9,60 h20.4 v1 h-20.4 z" />
+    <path android:fillColor="#FF5CFF72" android:pathData="M54.9,61 h20.4 v1.2 h-20.4 z" />
+    <!-- Lit lime column down to the bottom edge -->
+    <path android:fillColor="#FFEEFF6E" android:pathData="M54.9,62.2 h1.7 v13.1 h-1.7 z" />
+    </group>
 </vector>
